@@ -1,13 +1,14 @@
 // ==UserScript==
-// @name         PR List
+// @name         PR-List-team-gg
 // @namespace    http://hmrc.gov.uk
-// @version      1.2
+// @version      1.3
 // @description  PR list for given list of repos
 // @author       Martin Armstrong
 // @match        https://github.com/orgs/*/teams/*
 // @grant        none
 //
-// 1.2 - Team repos discovered rather than hard coded for teams
+// 1.3 - Fix PR Link and show PR's as discovered rather than when searching complete.
+// 1.2 - Team repos discovered rather than hard coded for teams other than 'gg'
 //     - Reload button added
 //     - Sort option only re-orders displayed PR's, it doesn't reload the list.
 //
@@ -71,7 +72,7 @@ function reloadWithProps(props) {
 }
 
 function setOrgAndTeamFromLocation() {
-  var matches = window.location.href.match(new RegExp("https://github.com/orgs/([^/]+)/teams/([^/]+)/")) || ["","",""];
+  var matches = window.location.href.match(new RegExp("https://github.com/orgs/([^/]+)/teams/([^/]+)")) || ["","",""];
   orgName = matches[1];
   teamName=matches[2];
 }
@@ -91,6 +92,7 @@ function addPRLink(orgName, teamName) {
   }
   a.id = "pr-list-link";
   a.innerHTML = 'Pull Requests';
+  a.style.cursor = "pointer";
   a.href="/orgs/"+orgName+"/teams/"+teamName+"/repositories?teamPRList={\"sortBy\":\""+SORT_BY.STATUS+"\"}"
   document.querySelector("nav.UnderlineNav-body[role='navigation']").append(a);
 }
@@ -315,25 +317,29 @@ function loadPRLinks(repoNames){
 }
 
 function init(){
+  setOrgAndTeamFromLocation();
   if(location.href.indexOf("teamPRList")>-1) {
     //unselect 'Repositories' nav link
     document.querySelector("a[class='UnderlineNav-item no-wrap selected']").className="UnderlineNav-item no-wrap";
     //hide repositories content
     document.querySelector("div.js-check-all-container").style.display="none";
 
-    //initialise orgName and teamName, extracted from the page url
-    setOrgAndTeamFromLocation();
     //add new container for pr list
     renderPRListContainer();
 
     setHeaderText(" Finding team repos..");
 
-    findReposForTeam(orgName, teamName, null, function(repoNames){
-        setHeaderText(" Found "+repoNames.length+" team repos.");
+    if(teamName=='gg') {
         loadPRLinks(repoNames);
-    });
+    }
+    else {
+        findReposForTeam(orgName, teamName, null, function(repoNames){
+            setHeaderText(" Found "+repoNames.length+" team repos.");
+            loadPRLinks(repoNames);
+        });
+    }
 
-    
+
   }
   addPRLink(orgName, teamName);
 }
