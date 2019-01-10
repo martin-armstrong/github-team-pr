@@ -329,7 +329,7 @@ function init(){
 
     setHeaderText(" Finding team repos..");
 
-    if(teamName=='gg') {
+    if(repoNames.length>0) {
         loadPRLinks(repoNames);
     }
     else {
