@@ -2,6 +2,8 @@
 // @name         PR-List-team-gg
 // @namespace    http://hmrc.gov.uk
 // @version      1.3
+// @updateURL     https://github.com/martin-armstrong/github-team-pr/raw/master/PR%20List.user.js
+// @downloadURL   https://github.com/martin-armstrong/github-team-pr/raw/master/PR%20List.user.js
 // @description  PR list for given list of repos
 // @author       Martin Armstrong
 // @match        https://github.com/orgs/*/teams/*
