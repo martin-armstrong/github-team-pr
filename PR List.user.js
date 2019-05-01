@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PR-List-team-gg
 // @namespace    http://hmrc.gov.uk
-// @version      1.3
+// @version      1.4
 // @updateURL     https://github.com/martin-armstrong/github-team-pr/raw/master/PR%20List.user.js
 // @downloadURL   https://github.com/martin-armstrong/github-team-pr/raw/master/PR%20List.user.js
 // @description  PR list for given list of repos
@@ -9,6 +9,7 @@
 // @match        https://github.com/orgs/*/teams/*
 // @grant        none
 //
+// 1.4 - Excludes Draft PRs from the list
 // 1.3 - Fix PR Link and show PR's as discovered rather than when searching complete.
 // 1.2 - Team repos discovered rather than hard coded for teams other than 'gg'
 //     - Reload button added
@@ -27,7 +28,8 @@ var repoNames = [];
 var STATUS = {
   APPROVED:"Approved",
   OPEN:"Open",
-  CHANGES_REQUESTED:"Changes requested"
+  CHANGES_REQUESTED:"Changes requested",
+  DRAFT:"Draft"
 }
 
 var SORT_BY = {
@@ -118,7 +120,7 @@ function extractDate(linkHtml) {
 }
 
 function extractStatus(linkHtml) {
-    var matches = (new RegExp(">[\\s]*(("+STATUS.APPROVED+")|("+STATUS.CHANGES_REQUESTED+"))[\\s]*<","gmi")).exec(linkHtml) || ["", STATUS.OPEN];
+    var matches = (new RegExp(">[\\s]*(("+STATUS.APPROVED+")|("+STATUS.CHANGES_REQUESTED+")|("+STATUS.DRAFT+"))[\\s]*<","gmi")).exec(linkHtml) || ["", STATUS.OPEN];
     return matches[1];
 }
 
@@ -304,9 +306,12 @@ function loadPRLinks(repoNames){
           reposToLoad--;
           var processedCount = repoNames.length - reposToLoad;
           links.forEach(linkHtml=>{
-              repoPRs.push(prDataParser(linkHtml, repoName));
-              sortPrLinks(props.sortBy);
-              renderRows();
+              var prData = prDataParser(linkHtml, repoName);
+              if(prData.status!=STATUS.DRAFT) {
+                repoPRs.push(prData);
+                sortPrLinks(props.sortBy);
+                renderRows();
+              }
           });
           setHeaderText(" Found "+repoPRs.length + " pull requests from "+processedCount+" team repos. Loading "+repoName+"..");
         if(reposToLoad==0) {
