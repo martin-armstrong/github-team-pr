@@ -1,14 +1,15 @@
 // ==UserScript==
-// @name         PR-List-team-gg
+// @name         PR-List
 // @namespace    http://hmrc.gov.uk
-// @version      1.4
-// @updateURL     https://github.com/martin-armstrong/github-team-pr/raw/master/PR%20List.user.js
-// @downloadURL   https://github.com/martin-armstrong/github-team-pr/raw/master/PR%20List.user.js
+// @version      1.5
 // @description  PR list for given list of repos
 // @author       Martin Armstrong
 // @match        https://github.com/orgs/*/teams/*
 // @grant        none
+// @updateURL     https://github.com/martin-armstrong/github-team-pr/raw/master/PR%20List.user.js
+// @downloadURL   https://github.com/martin-armstrong/github-team-pr/raw/master/PR%20List.user.js
 //
+// 1.5 - Show failing checks in red, same as 'Changes requested' status.
 // 1.4 - Excludes Draft PRs from the list
 // 1.3 - Fix PR Link and show PR's as discovered rather than when searching complete.
 // 1.2 - Team repos discovered rather than hard coded for teams other than 'gg'
@@ -21,10 +22,12 @@
 
 var prList = (function(){
 
-var orgName = ""
-var teamName = "";
+//Add a hard-coded list of repo names in this array, else you'll see all repos for your team
 var repoNames = [];
 
+var orgName = "";
+var teamName = "";
+  
 var STATUS = {
   APPROVED:"Approved",
   OPEN:"Open",
@@ -82,7 +85,7 @@ function setOrgAndTeamFromLocation() {
 }
 
 function buildPullLinkRegex(orgName, repoName) {
-    return new RegExp("<div[^<]+<a[^>]+data-hovercard-type=\"pull_request\"([^>]+>){17}","gmi");
+    return new RegExp("<div[^<]+<a[^>]+data-hovercard-type=\"pull_request\"([^>]+>){22}","gmi");
 }
 
 
@@ -121,7 +124,12 @@ function extractDate(linkHtml) {
 
 function extractStatus(linkHtml) {
     var matches = (new RegExp(">[\\s]*(("+STATUS.APPROVED+")|("+STATUS.CHANGES_REQUESTED+")|("+STATUS.DRAFT+"))[\\s]*<","gmi")).exec(linkHtml) || ["", STATUS.OPEN];
-    return matches[1];
+    if(new RegExp('aria\-label="Failure\:', "gmi").exec(linkHtml) != null) {
+        return STATUS.CHANGES_REQUESTED;
+    }
+    else {
+        return matches[1];
+    }
 }
 
 function extractTicket(prLink) {
