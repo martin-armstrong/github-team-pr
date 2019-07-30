@@ -2,11 +2,8 @@
 TamperMonkey browser extension to show pull requests for all repos in your github team.
 
 This adds an additional tab into your GitHub team page, showing Pull Requests across all repos found under your team repositories tab, and colour coded as follows..\
-Dark Yellow : Awaiting checks\
-Dark Red : Checks failed\
-Light Yellow : Awaiting review\
-Light Red : Changes requested\
-Green : Reviewed and approved
+
+![Image](https://github.com/martin-armstrong/github-team-pr/raw/master/pr-list-colour-key.png)
 
 # Setup
 Install the TamperMonkey extension on your browser of choice ([Chrome](https://chrome.google.com/webstore/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo?hl=en) / [Firefox](https://addons.mozilla.org/en-GB/firefox/addon/tampermonkey/)).\
