@@ -36,12 +36,12 @@ function Status(matchText, number, colour) {
 }
 
 var STATUS = {
-  APPROVED:new Status("Approved", 0, "#C2F7AB"),
+  APPROVED:new Status("Approved", 0, "#71bd5b"),
   PENDING_REVIEW:new Status("Open", 1, "#F3F7A1"),
   CHANGES_REQUESTED:new Status("Changes requested", 2, "#F8CCBD"),
   FAILED_CHECKS:new Status("Failed checks", 2, "#e3957b"),
   DRAFT:new Status("Draft", 3, "#FFFFFF"),
-  PENDING_CHECKS:new Status("Pending: Build triggered", 4, "#d3d966")
+  PENDING_CHECKS:new Status("Pending: Build triggered", 4, "#fcc41c")
 }
 
 var SORT_BY = {
