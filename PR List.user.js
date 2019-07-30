@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PR-List
 // @namespace    http://hmrc.gov.uk
-// @version      1.5
+// @version      1.6
 // @description  PR list for given list of repos
 // @author       Martin Armstrong
 // @match        https://github.com/orgs/*/teams/*
@@ -9,6 +9,7 @@
 // @updateURL     https://github.com/martin-armstrong/github-team-pr/raw/master/PR%20List.user.js
 // @downloadURL   https://github.com/martin-armstrong/github-team-pr/raw/master/PR%20List.user.js
 //
+// 1.6 - Show pending checks in a dark yellow. Adds colour key to header. Fix repo links.
 // 1.5 - Show failing checks in red, same as 'Changes requested' status.
 // 1.4 - Excludes Draft PRs from the list
 // 1.3 - Fix PR Link and show PR's as discovered rather than when searching complete.
@@ -22,17 +23,25 @@
 
 var prList = (function(){
 
-//Add a hard-coded list of repo names in this array, else you'll see all repos for your team
+//Add a hard-coded list of repo names in this array, else you'll see repos for your team
 var repoNames = [];
 
 var orgName = "";
 var teamName = "";
-  
+
+function Status(matchText, number, colour) {
+  this.matchText = matchText;
+  this.number=number;
+  this.colour=colour;
+}
+
 var STATUS = {
-  APPROVED:"Approved",
-  OPEN:"Open",
-  CHANGES_REQUESTED:"Changes requested",
-  DRAFT:"Draft"
+  APPROVED:new Status("Approved", 0, "#C2F7AB"),
+  PENDING_REVIEW:new Status("Open", 1, "#F3F7A1"),
+  CHANGES_REQUESTED:new Status("Changes requested", 2, "#F8CCBD"),
+  FAILED_CHECKS:new Status("Failed checks", 2, "#e3957b"),
+  DRAFT:new Status("Draft", 3, "#FFFFFF"),
+  PENDING_CHECKS:new Status("Pending: Build triggered", 4, "#d3d966")
 }
 
 var SORT_BY = {
@@ -42,14 +51,6 @@ var SORT_BY = {
   TICKET:"ticket"
 }
 
-function statusNumber(statusString){
-  switch(statusString) {
-      case STATUS.CHANGES_REQUESTED: return 2; break;
-      case STATUS.OPEN: return 1; break;
-      case STATUS.APPROVED: return 0; break;
-      default: return 3;
-  }
-}
 
 var props = (function(){
   var index = location.href.indexOf("teamPRList");
@@ -122,14 +123,26 @@ function extractDate(linkHtml) {
     return dateObj;
 }
 
-function extractStatus(linkHtml) {
-    var matches = (new RegExp(">[\\s]*(("+STATUS.APPROVED+")|("+STATUS.CHANGES_REQUESTED+")|("+STATUS.DRAFT+"))[\\s]*<","gmi")).exec(linkHtml) || ["", STATUS.OPEN];
+function extractStatus(linkHtml) {    
+    var statusObj = null;
     if(new RegExp('aria\-label="Failure\:', "gmi").exec(linkHtml) != null) {
-        return STATUS.CHANGES_REQUESTED;
+        statusObj = STATUS.FAILED_CHECKS;
+    }
+    else if(new RegExp('aria\-label="Pending\: Build triggered', "gmi").exec(linkHtml) != null) {
+        statusObj = STATUS.PENDING_CHECKS;
     }
     else {
-        return matches[1];
+        var matches = (new RegExp(">[\\s]*(("+STATUS.APPROVED.matchText+")|("+STATUS.CHANGES_REQUESTED.matchText+")|("+STATUS.DRAFT.matchText+"))[\\s]*<","gmi")).exec(linkHtml) || ["", STATUS.PENDING_REVIEW.matchText];
+        switch(matches[1]) {
+            case STATUS.APPROVED.matchText: statusObj=STATUS.APPROVED; break;
+            case STATUS.CHANGES_REQUESTED.matchText: statusObj=STATUS.CHANGES_REQUESTED; break;
+            case STATUS.DRAFT.matchText: statusObj=STATUS.DRAFT; break;
+            case STATUS.PENDING_REVIEW.matchText: statusObj=STATUS.PENDING_REVIEW; break;
+            default: statusObj=STATUS.PENDING_REVIEW;
+        }
     }
+    console.log("extracted status : "+statusObj.matchText);
+    return statusObj;
 }
 
 function extractTicket(prLink) {
@@ -192,7 +205,13 @@ function getHeaderDiv() {
     html += ' <span id="'+DOM_ID.HEADER+'">## pull requests for team repos</span>';
 
     html += '<div style="float:right;padding-right:15px">';
-    html += '<img id="'+DOM_ID.REFRESH_BUTTON+'" style="width:20px;position:relative;top:4px;cursor:pointer" title="Reload" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAGmSURBVFhH7ZY5SgRBFEDHTBFz9wVF8SyCgSIiegEXNFE8iomRgeIaiMtNXHKNXUHcfa+ZgmZAe7GhQefBY6iiquvXdHX9X6lTJyOduICneI6P+ITX1b4V7MbCacd1fMXPBB2zgR1YCKP4gD78GbdxCoewGRuxFydwEx3j2Fscx0AIMBNL+I5O3MMBTKILd9A5HziPkjkAd+7ib+i7zcoiOtcgxjBTAL6/e3RCnsUDc+gzbqq/qQPwwDl4P2r9jgMMi6cKwHfoX+dh6rcjB/EFa03E79yBnva81C4aN5FjdKCfWilcogEMRq0SCKe/JWr9EdyMm3JzpeC1bQAXUasEZtAAjqJWAg78zrzsovNno1YCtYvGzYMJ7AVN06b1ROIL/vYqbsBD9FlrdqQhLB4SiAklL6voM6wNWu1IQwjAFGoqNS9YF2TBnbt4SOcjmJoQgFhMGIRtX0cPJuE7D3+7i5tbMhEPQCyr7tA+M+QWTmIfNqGXzDBOo6c9lGTOybTzn7BAsdBMW5R64NqwcKwVlvEEr9CS3Ov1DL1k/M4Lq4br/AcqlS/NoqKCkW1vxQAAAABJRU5ErkJggg=="> ';
+    html += '<span>Key: </span>';
+    html += '<span style="background-color:'+STATUS.APPROVED.colour+';padding:2px 5px 2px 5px;">Approved</span>';
+    html += '<span style="background-color:'+STATUS.PENDING_REVIEW.colour+';padding:2px 5px 2px 5px;">Pending Review</span>';
+    html += '<span style="background-color:'+STATUS.CHANGES_REQUESTED.colour+';padding:2px 5px 2px 5px;">Changes Required</span>';
+    html += '<span style="background-color:'+STATUS.PENDING_CHECKS.colour+';padding:2px 5px 2px 5px;">Pending Checks</span>';
+    html += '<span style="background-color:'+STATUS.FAILED_CHECKS.colour+';padding:2px 5px 2px 5px;">Failed Checks</span>';
+    html += '<img id="'+DOM_ID.REFRESH_BUTTON+'" style="margin-left:20px;width:20px;position:relative;top:4px;cursor:pointer" title="Reload" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAGmSURBVFhH7ZY5SgRBFEDHTBFz9wVF8SyCgSIiegEXNFE8iomRgeIaiMtNXHKNXUHcfa+ZgmZAe7GhQefBY6iiquvXdHX9X6lTJyOduICneI6P+ITX1b4V7MbCacd1fMXPBB2zgR1YCKP4gD78GbdxCoewGRuxFydwEx3j2Fscx0AIMBNL+I5O3MMBTKILd9A5HziPkjkAd+7ib+i7zcoiOtcgxjBTAL6/e3RCnsUDc+gzbqq/qQPwwDl4P2r9jgMMi6cKwHfoX+dh6rcjB/EFa03E79yBnva81C4aN5FjdKCfWilcogEMRq0SCKe/JWr9EdyMm3JzpeC1bQAXUasEZtAAjqJWAg78zrzsovNno1YCtYvGzYMJ7AVN06b1ROIL/vYqbsBD9FlrdqQhLB4SiAklL6voM6wNWu1IQwjAFGoqNS9YF2TBnbt4SOcjmJoQgFhMGIRtX0cPJuE7D3+7i5tbMhEPQCyr7tA+M+QWTmIfNqGXzDBOo6c9lGTOybTzn7BAsdBMW5R64NqwcKwVlvEEr9CS3Ov1DL1k/M4Lq4br/AcqlS/NoqKCkW1vxQAAAABJRU5ErkJggg=="> ';
     html += ' Sort By: <select id="pr-list-sort" >';
     html += '<option value="'+SORT_BY.DATE+'" '+(props.sortBy==SORT_BY.DATE?'selected':'')+'>Date</option>';
     html += '<option value="'+SORT_BY.STATUS+'" '+(props.sortBy==SORT_BY.STATUS?'selected':'')+' >Status</option>';
@@ -212,14 +231,18 @@ function setHeaderText(text) {
 function addPRRow(pr) {
     var ul = document.getElementById(DOM_ID.LIST);
     var li = document.createElement("li");
-    var style = pr.status==STATUS.APPROVED ? 'background-color:#C2F7AB;' : 'background-color:#F3F7A1;';
-    style = pr.status==STATUS.CHANGES_REQUESTED ? 'background-color:#F8CCBD;' : style;
+    var style = "background-color:"+pr.status.colour+";";
     style += "padding:0px 10px 0px 10px;";
     li.className="table-list-item js-team-row js-bulk-actions-item";
+
     var html = "<div style=\""+style+"\">";
     html += pr.link + " : " + pr.openedBy;
-    html += " : <a href=\"https://jira.tools.tax.service.gov.uk/browse/"+pr.ticket+"\">Jira</a>";
-    html += "<div style=\"color:black;font-weight:600;float:right;\">"+pr.repoName+"</div>";
+    if(pr.ticket.length>0) {
+      html += " : <a href=\"https://jira.tools.tax.service.gov.uk/browse/"+pr.ticket+"\">Jira</a>";
+    }
+    html += "<div style=\"float:right;\">";
+    html += "<a class='link-gray-dark v-align-middle no-underline h4 js-navigation-open' data-hovercard-type='repository' data-hovercard-url='/hmrc/"+pr.repoName+"/hovercard' href='https://github.com/hmrc/"+pr.repoName+"'>"+pr.repoName+"</a>";
+    html += "</div>";
     html += "</div>";
     li.innerHTML = html;
     ul.appendChild(li);
@@ -266,7 +289,7 @@ function sortByDate(prA, prB) {
 }
 
 function sortByStatus(prA, prB) {
-  if([statusNumber(prA.status), statusNumber(prB.status)].sort().indexOf(statusNumber(prA.status))==0) {
+  if([prA.status.number, prB.status.number].sort().indexOf(prA.status.number)==0) {
       return 1;
   }
   return -1;
