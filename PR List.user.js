@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PR-List
 // @namespace    http://hmrc.gov.uk
-// @version      1.6
+// @version      1.7
 // @description  PR list for given list of repos
 // @author       Martin Armstrong
 // @match        https://github.com/orgs/*/teams/*
@@ -9,6 +9,7 @@
 // @updateURL     https://github.com/martin-armstrong/github-team-pr/raw/master/PR%20List.user.js
 // @downloadURL   https://github.com/martin-armstrong/github-team-pr/raw/master/PR%20List.user.js
 //
+// 1.7 - Switch to repo name exclusion patterns instead of white list. Add Team members only toggle.
 // 1.6 - Show pending checks in a dark yellow. Adds colour key to header. Fix repo links.
 // 1.5 - Show failing checks in red, same as 'Changes requested' status.
 // 1.4 - Excludes Draft PRs from the list
@@ -23,11 +24,36 @@
 
 var prList = (function(){
 
-//Add a hard-coded list of repo names in this array, else you'll see repos for your team
-var repoNames = [];
+var repoExclusions = [
+  /app-config-.+/,
+  /.+test/,
+  /.+tests/,
+  /.+specs/,
+  /.+testing/,
+  /.+-config/,
+  /build-jobs/,
+  /domain/,
+  /.+stub/,
+  /.+perf/,
+  /.+-dashboards/,
+  /.+-jobs/,
+  /mdtp-frontend-routes/,
+  /play-auth/,
+  /play-authorisation/,
+  /play-authorised-frontend/,
+  /play-filters/,
+  /saml/,
+  /scripts/,
+  /tax-year/,
+  /play-sso/,
+  /outage-pages/,
+  /sbt-service-manager/
+];
+
 
 var orgName = "";
 var teamName = "";
+var teamMembers = [];
 
 function Status(matchText, number, colour) {
   this.matchText = matchText;
@@ -54,16 +80,21 @@ var SORT_BY = {
 
 var props = (function(){
   var index = location.href.indexOf("teamPRList");
+  var defaultProps = {
+        sortBy:SORT_BY.DATE,
+        teamMembersOnly:true
+      };
   if(index>-1) {
-      return JSON.parse(decodeURIComponent(location.href.substring(index+"teamPRList".length+1)));
+      var parsedJson = JSON.parse(decodeURIComponent(location.href.substring(index+"teamPRList".length+1)));
+      parsedJson.sortBy = parsedJson.sortBy || defaultProps.sortBy;
+      parsedJson.teamMembersOnly = (typeof parsedJson.teamMembersOnly) == "boolean" ? parsedJson.teamMembersOnly : defaultProps.teamMembersOnly;
+      return parsedJson;
   } else {
-      return {
-        sortBy:SORT_BY.DATE
-      }
+      return defaultProps;
   }
 })();
 
-var reposToLoad = repoNames.length;
+var reposToLoad = 0;
 var repoPRs = [];
 var DOM_ID = {
   CONTAINER:"pr-list-container",
@@ -145,6 +176,14 @@ function extractStatus(linkHtml) {
     return statusObj;
 }
 
+function extractCreatedBy(prLink) {
+  var matches = (new RegExp('"Open pull requests created by ([^"]+)"')).exec(prLink) || ["", ""];
+  if(matches[1]=="") {
+    console.warn("No created by team member identified in: "+prLink);
+  }
+  return matches[1];
+}
+
 function extractTicket(prLink) {
     var matches = (new RegExp(">([A-Za-z]+[- ]?[0-9]+)","mi")).exec(prLink) || ["", ""];
     if(matches[1]=="") {
@@ -154,8 +193,12 @@ function extractTicket(prLink) {
     return ticket;
 }
 
-function findReposForTeam(org, team, nextPageUrl, callback){ //https://github.com/orgs/hmrc/teams/gg/repositories
-  fetch(nextPageUrl || "https://github.com/orgs/"+orgName+"/teams/"+team+"/repositories", {credentials: "same-origin"})
+function findReposForTeam(org, team, _nextPageUrl, callback){ //https://github.com/orgs/hmrc/teams/gg/repositories
+  var nextPageUrl = _nextPageUrl || "https://github.com/orgs/"+orgName+"/teams/"+team+"/repositories";
+  if(!_nextPageUrl) {
+    setHeaderText(" Finding team repos in : "+nextPageUrl);
+  }
+  fetch(nextPageUrl, {credentials: "same-origin"})
     .then(response => response.text())
     .then(responseText => {
       var repoNames = responseText.match(new RegExp('data-bulk-actions-id="([^"]+)"',"gmi")) || [];
@@ -179,6 +222,35 @@ function findReposForTeam(org, team, nextPageUrl, callback){ //https://github.co
 }
 window.findReposForTeam = findReposForTeam
 
+
+function findTeamMembers(org, team, _nextPageUrl, callback){ //https://github.com/orgs/hmrc/teams/gg/members
+  var nextPageUrl = _nextPageUrl || "https://github.com/orgs/"+orgName+"/teams/"+team+"/members";
+  if(!_nextPageUrl) {
+    setHeaderText(" Finding team members in : "+nextPageUrl);
+  }
+  fetch(nextPageUrl, {credentials: "same-origin"})
+    .then(response => response.text())
+    .then(responseText => {
+      var memberIds = responseText.match(new RegExp('data-bulk-actions-id="([^"]+)"',"gmi")) || [];
+      var nextLink = responseText.match(new RegExp('href="([^"]+)">Next<',"gmi")) || [];
+      memberIds = memberIds.map(htmlAtt=>htmlAtt.substring('data-bulk-actions-id="'.length, htmlAtt.length-1));
+      if(nextLink.length>0 && nextLink[0].length>13) {
+          nextLink = nextLink[0].substring(6, nextLink[0].length-7);
+          console.log("Fetching team member IDs from: "+nextLink);
+          findTeamMembers(org, team, nextLink, function(moreMemberIDs){
+            memberIds = [].concat(memberIds).concat(moreMemberIDs);
+            memberIds.forEach(memberId=>console.log("Found team member ID: "+memberId));
+            if(typeof callback=="function") callback(memberIds);
+          })
+      }
+      else {
+         memberIds.forEach(memberId=>console.log("Found team member ID: "+memberId));
+         if(typeof callback=="function") callback(memberIds);
+      }
+    });
+}
+window.findTeamMembers = findTeamMembers
+
 function prDataParser(prLinkHTML, repoName){
   var div = document.createElement('div');
   div.innerHTML = prLinkHTML;
@@ -191,7 +263,8 @@ function prDataParser(prLinkHTML, repoName){
     linkHtml : prLinkHTML,
     repoName : repoName,
     date : extractDate(prLinkHTML),
-    status : extractStatus(prLinkHTML)
+    status : extractStatus(prLinkHTML),
+    createdBy: extractCreatedBy(prLinkHTML)
   }
   return data;
 }
@@ -212,6 +285,7 @@ function getHeaderDiv() {
     html += '<span style="background-color:'+STATUS.PENDING_CHECKS.colour+';padding:2px 5px 2px 5px;">Pending Checks</span>';
     html += '<span style="background-color:'+STATUS.FAILED_CHECKS.colour+';padding:2px 5px 2px 5px;">Failed Checks</span>';
     html += '<img id="'+DOM_ID.REFRESH_BUTTON+'" style="margin-left:20px;width:20px;position:relative;top:4px;cursor:pointer" title="Reload" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAGmSURBVFhH7ZY5SgRBFEDHTBFz9wVF8SyCgSIiegEXNFE8iomRgeIaiMtNXHKNXUHcfa+ZgmZAe7GhQefBY6iiquvXdHX9X6lTJyOduICneI6P+ITX1b4V7MbCacd1fMXPBB2zgR1YCKP4gD78GbdxCoewGRuxFydwEx3j2Fscx0AIMBNL+I5O3MMBTKILd9A5HziPkjkAd+7ib+i7zcoiOtcgxjBTAL6/e3RCnsUDc+gzbqq/qQPwwDl4P2r9jgMMi6cKwHfoX+dh6rcjB/EFa03E79yBnva81C4aN5FjdKCfWilcogEMRq0SCKe/JWr9EdyMm3JzpeC1bQAXUasEZtAAjqJWAg78zrzsovNno1YCtYvGzYMJ7AVN06b1ROIL/vYqbsBD9FlrdqQhLB4SiAklL6voM6wNWu1IQwjAFGoqNS9YF2TBnbt4SOcjmJoQgFhMGIRtX0cPJuE7D3+7i5tbMhEPQCyr7tA+M+QWTmIfNqGXzDBOo6c9lGTOybTzn7BAsdBMW5R64NqwcKwVlvEEr9CS3Ov1DL1k/M4Lq4br/AcqlS/NoqKCkW1vxQAAAABJRU5ErkJggg=="> ';
+    html += ' Team Members Only: <input type="checkbox" id="toggle-team-members-only" '+(props.teamMembersOnly?'CHECKED':'')+' ></input>';
     html += ' Sort By: <select id="pr-list-sort" >';
     html += '<option value="'+SORT_BY.DATE+'" '+(props.sortBy==SORT_BY.DATE?'selected':'')+'>Date</option>';
     html += '<option value="'+SORT_BY.STATUS+'" '+(props.sortBy==SORT_BY.STATUS?'selected':'')+' >Status</option>';
@@ -229,6 +303,9 @@ function setHeaderText(text) {
 }
 
 function addPRRow(pr) {
+    if(props.teamMembersOnly && teamMembers.indexOf(pr.createdBy)==-1) {
+      return;
+    }
     var ul = document.getElementById(DOM_ID.LIST);
     var li = document.createElement("li");
     var style = "background-color:"+pr.status.colour+";";
@@ -261,6 +338,11 @@ function changeSortBy(evt) {
     renderRows();
 }
 
+function toggleTeamMembersOnly(evt) {
+    props.teamMembersOnly = !props.teamMembersOnly;
+    reloadWithProps(props);
+}
+
 function refreshHandler() {
   reloadWithProps(props);
 }
@@ -278,6 +360,7 @@ function renderPRListContainer() {
   document.querySelector(".container").style.width="90%";
   document.querySelector(".container").appendChild(div);
 
+  document.getElementById('toggle-team-members-only').onchange = toggleTeamMembersOnly;
   document.getElementById('pr-list-sort').onchange = changeSortBy;
   document.getElementById(DOM_ID.REFRESH_BUTTON).onclick = refreshHandler
 }
@@ -329,13 +412,26 @@ function renderRows() {
     repoPRs.forEach(pr=>addPRRow(pr));
 }
 
+function logRepoParseDone(prCount, repoCount, repoTotal, repoName) {
+  if(repoCount==repoTotal) { //done all repos
+    setHeaderText("Found "+prCount+" pull requests in "+repoCount+" repos.");
+    console.log(repoPRs);
+  }
+  else {
+    setHeaderText("Found "+prCount+" pull requests in "+repoCount+" repos. Parsing "+repoName+"...");
+  }
+}
+
 function loadPRLinks(repoNames){
+    var reposToLoad = repoNames.length;
+    var processedRepoCount = 0;
     //load PR links for each repo
+    setHeaderText("Finding pull requests for "+repoNames.length+" team repos...");
     repoNames.forEach(repoName => {
-      setHeaderText("Found "+repoPRs.length + " pull requests from 0 team repos. Loading "+repoName+"..");
       loadPRData(orgName, repoName, (links) => {
-          reposToLoad--;
-          var processedCount = repoNames.length - reposToLoad;
+          var prsToProcess = links.length;
+          var processedPRCount = 0;
+
           links.forEach(linkHtml=>{
               var prData = prDataParser(linkHtml, repoName);
               if(prData.status!=STATUS.DRAFT) {
@@ -343,15 +439,28 @@ function loadPRLinks(repoNames){
                 sortPrLinks(props.sortBy);
                 renderRows();
               }
+              processedPRCount++;
+
+              if(processedPRCount==prsToProcess) { //done all PRs in current repo
+                  processedRepoCount++;
+                  logRepoParseDone(repoPRs.length, processedRepoCount, reposToLoad, repoName);
+              }
           });
-          setHeaderText(" Found "+repoPRs.length + " pull requests from "+processedCount+" team repos. Loading "+repoName+"..");
-        if(reposToLoad==0) {
-          setHeaderText(" Found "+repoPRs.length + " pull requests from "+processedCount+" team repos.");
-          console.log("DONE");
-          console.log(repoPRs);
-        }
+
+          if(links.length==0) {
+              processedRepoCount++;
+              logRepoParseDone(repoPRs.length, processedRepoCount, reposToLoad, repoName);
+          }
       })
     });
+}
+
+function filteredRepoNames(repoNames) {
+  return repoNames.filter((name)=>{
+      return repoExclusions.filter((exlusion)=>{
+        return exlusion.test(name)
+      }).length == 0; //no exclusion regexes should match the repo name
+  });
 }
 
 function init(){
@@ -365,18 +474,16 @@ function init(){
     //add new container for pr list
     renderPRListContainer();
 
-    setHeaderText(" Finding team repos..");
+    setHeaderText(" Finding repositories...");
 
-    if(repoNames.length>0) {
+    findReposForTeam(orgName, teamName, null, function(_repoNames){
+      var repoNames = filteredRepoNames(_repoNames);
+      setHeaderText(" Finding team members...");
+      findTeamMembers(orgName, teamName, null, (teamMemberIds)=>{
+        teamMembers = teamMemberIds;
         loadPRLinks(repoNames);
-    }
-    else {
-        findReposForTeam(orgName, teamName, null, function(repoNames){
-            setHeaderText(" Found "+repoNames.length+" team repos.");
-            loadPRLinks(repoNames);
-        });
-    }
-
+      });
+    });
 
   }
   addPRLink(orgName, teamName);
