@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PR-List
 // @namespace    http://hmrc.gov.uk
-// @version      1.7
+// @version      1.8
 // @description  PR list for given list of repos
 // @author       Martin Armstrong
 // @match        https://github.com/orgs/*/teams/*
@@ -9,7 +9,8 @@
 // @updateURL     https://github.com/martin-armstrong/github-team-pr/raw/master/PR%20List.user.js
 // @downloadURL   https://github.com/martin-armstrong/github-team-pr/raw/master/PR%20List.user.js
 //
-// 1.7 - Switch to repo name exclusion patterns instead of white list. Add Team members only toggle.
+// 1.8 - Fix status parsing, due to GitHub content change
+// 1.7 - Switch to repo name exlusion patterns instead of white list. Add Team members only toggle.
 // 1.6 - Show pending checks in a dark yellow. Adds colour key to header. Fix repo links.
 // 1.5 - Show failing checks in red, same as 'Changes requested' status.
 // 1.4 - Excludes Draft PRs from the list
@@ -24,31 +25,39 @@
 
 var prList = (function(){
 
-var repoExclusions = [
+var configRepoPatterns = [
   /app-config-.+/,
+  /.+-config/,
+  /build-jobs/,
+  /.+-dashboards/,
+  /.+-jobs/,
+  /mdtp-frontend-routes/,
+  /scripts/,
+  /outage-pages/,
+  /sbt-service-manager/
+];
+
+var testingRepoPatterns = [
   /.+test/,
   /.+tests/,
   /.+specs/,
   /.+testing/,
-  /.+-config/,
-  /build-jobs/,
-  /domain/,
   /.+stub/,
-  /.+perf/,
-  /.+-dashboards/,
-  /.+-jobs/,
-  /mdtp-frontend-routes/,
+  /.+perf/
+];
+
+var otherSharedRepoPatterns = [
+  /domain/,
   /play-auth/,
   /play-authorisation/,
   /play-authorised-frontend/,
   /play-filters/,
   /saml/,
-  /scripts/,
   /tax-year/,
-  /play-sso/,
-  /outage-pages/,
-  /sbt-service-manager/
+  /play-sso/
 ];
+
+var repoExclusions = configRepoPatterns.concat(testingRepoPatterns).concat(otherSharedRepoPatterns);
 
 
 var orgName = "";
@@ -117,7 +126,7 @@ function setOrgAndTeamFromLocation() {
 }
 
 function buildPullLinkRegex(orgName, repoName) {
-    return new RegExp("<div[^<]+<a[^>]+data-hovercard-type=\"pull_request\"([^>]+>){22}","gmi");
+    return new RegExp("<div[^<]+<a[^>]+data-hovercard-type=\"pull_request\"([^>]+>){23}","gmi");
 }
 
 
@@ -269,6 +278,18 @@ function prDataParser(prLinkHTML, repoName){
   return data;
 }
 
+function getStyle() {
+  var style = document.createElement("style");
+  var css = '#header-controls {display:inline-block;float:right;padding-right:15px;}';
+      css += '#key {display:inline-block;margin-right:10px;}';
+      css += 'span.key-cell {padding:2px 5px 2px 5px;}';
+      css += "#"+DOM_ID.REFRESH_BUTTON+" {margin-left:10px;width:20px;position:relative;top:4px;cursor:pointer;margin-right:20px;}";
+      css += "#toggle-team-members-only {margin-right:10px;}";
+
+  style.innerText = css;
+  return style;
+}
+
 function getHeaderDiv() {
   var div = document.createElement("div");
   div.className="table-list-header table-list-header-next bulk-actions-header";
@@ -277,21 +298,23 @@ function getHeaderDiv() {
 
     html += ' <span id="'+DOM_ID.HEADER+'">## pull requests for team repos</span>';
 
-    html += '<div style="float:right;padding-right:15px">';
-    html += '<span>Key: </span>';
-    html += '<span style="background-color:'+STATUS.APPROVED.colour+';padding:2px 5px 2px 5px;">Approved</span>';
-    html += '<span style="background-color:'+STATUS.PENDING_REVIEW.colour+';padding:2px 5px 2px 5px;">Pending Review</span>';
-    html += '<span style="background-color:'+STATUS.CHANGES_REQUESTED.colour+';padding:2px 5px 2px 5px;">Changes Required</span>';
-    html += '<span style="background-color:'+STATUS.PENDING_CHECKS.colour+';padding:2px 5px 2px 5px;">Pending Checks</span>';
-    html += '<span style="background-color:'+STATUS.FAILED_CHECKS.colour+';padding:2px 5px 2px 5px;">Failed Checks</span>';
-    html += '<img id="'+DOM_ID.REFRESH_BUTTON+'" style="margin-left:20px;width:20px;position:relative;top:4px;cursor:pointer" title="Reload" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAGmSURBVFhH7ZY5SgRBFEDHTBFz9wVF8SyCgSIiegEXNFE8iomRgeIaiMtNXHKNXUHcfa+ZgmZAe7GhQefBY6iiquvXdHX9X6lTJyOduICneI6P+ITX1b4V7MbCacd1fMXPBB2zgR1YCKP4gD78GbdxCoewGRuxFydwEx3j2Fscx0AIMBNL+I5O3MMBTKILd9A5HziPkjkAd+7ib+i7zcoiOtcgxjBTAL6/e3RCnsUDc+gzbqq/qQPwwDl4P2r9jgMMi6cKwHfoX+dh6rcjB/EFa03E79yBnva81C4aN5FjdKCfWilcogEMRq0SCKe/JWr9EdyMm3JzpeC1bQAXUasEZtAAjqJWAg78zrzsovNno1YCtYvGzYMJ7AVN06b1ROIL/vYqbsBD9FlrdqQhLB4SiAklL6voM6wNWu1IQwjAFGoqNS9YF2TBnbt4SOcjmJoQgFhMGIRtX0cPJuE7D3+7i5tbMhEPQCyr7tA+M+QWTmIfNqGXzDBOo6c9lGTOybTzn7BAsdBMW5R64NqwcKwVlvEEr9CS3Ov1DL1k/M4Lq4br/AcqlS/NoqKCkW1vxQAAAABJRU5ErkJggg=="> ';
+    html += '<div id="header-controls">';
+    html += '<div id="key">Key: ';
+    html += '<span class="key-cell" style="background-color:'+STATUS.APPROVED.colour+';">Approved</span>';
+    html += '<span class="key-cell" style="background-color:'+STATUS.PENDING_REVIEW.colour+';">Pending Review</span>';
+    html += '<span class="key-cell" style="background-color:'+STATUS.CHANGES_REQUESTED.colour+';">Changes Required</span>';
+    html += '<span class="key-cell" style="background-color:'+STATUS.PENDING_CHECKS.colour+';">Pending Checks</span>';
+    html += '<span class="key-cell" style="background-color:'+STATUS.FAILED_CHECKS.colour+';">Failed Checks</span>';
+    html += '</div>';
+    html += '<img id="'+DOM_ID.REFRESH_BUTTON+'" title="Reload" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAGmSURBVFhH7ZY5SgRBFEDHTBFz9wVF8SyCgSIiegEXNFE8iomRgeIaiMtNXHKNXUHcfa+ZgmZAe7GhQefBY6iiquvXdHX9X6lTJyOduICneI6P+ITX1b4V7MbCacd1fMXPBB2zgR1YCKP4gD78GbdxCoewGRuxFydwEx3j2Fscx0AIMBNL+I5O3MMBTKILd9A5HziPkjkAd+7ib+i7zcoiOtcgxjBTAL6/e3RCnsUDc+gzbqq/qQPwwDl4P2r9jgMMi6cKwHfoX+dh6rcjB/EFa03E79yBnva81C4aN5FjdKCfWilcogEMRq0SCKe/JWr9EdyMm3JzpeC1bQAXUasEZtAAjqJWAg78zrzsovNno1YCtYvGzYMJ7AVN06b1ROIL/vYqbsBD9FlrdqQhLB4SiAklL6voM6wNWu1IQwjAFGoqNS9YF2TBnbt4SOcjmJoQgFhMGIRtX0cPJuE7D3+7i5tbMhEPQCyr7tA+M+QWTmIfNqGXzDBOo6c9lGTOybTzn7BAsdBMW5R64NqwcKwVlvEEr9CS3Ov1DL1k/M4Lq4br/AcqlS/NoqKCkW1vxQAAAABJRU5ErkJggg=="> ';
     html += ' Team Members Only: <input type="checkbox" id="toggle-team-members-only" '+(props.teamMembersOnly?'CHECKED':'')+' ></input>';
     html += ' Sort By: <select id="pr-list-sort" >';
     html += '<option value="'+SORT_BY.DATE+'" '+(props.sortBy==SORT_BY.DATE?'selected':'')+'>Date</option>';
     html += '<option value="'+SORT_BY.STATUS+'" '+(props.sortBy==SORT_BY.STATUS?'selected':'')+' >Status</option>';
     html += '<option value="'+SORT_BY.REPO+'" '+(props.sortBy==SORT_BY.REPO?'selected':'')+' >Repository</option>';
     html += '<option value="'+SORT_BY.TICKET+'" '+(props.sortBy==SORT_BY.TICKET?'selected':'')+' >Ticket</option>';
-    html += '</select></div>';
+    html += '</select>';
+    html += '</div>';
 
     html += '</span></div>';
   div.innerHTML = html;
@@ -355,6 +378,7 @@ function renderPRListContainer() {
   var div = document.createElement("div");
   div.className="js-check-all-container js-bulk-actions-container";
   div.id=DOM_ID.CONTAINER;
+  div.appendChild(getStyle());
   div.appendChild(getHeaderDiv());
   div.appendChild(getContentDiv());
   document.querySelector(".container").style.width="90%";
